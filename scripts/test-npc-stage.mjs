@@ -12,6 +12,11 @@ const logic = await import("../src/lib/dm/npc-stage-logic.ts");
 const minds = await import("../src/lib/db/npc-minds.ts");
 const { upsertNpc, getNpcByName, setNpcState } = await import("../src/lib/db/npcs.ts");
 const { getClock } = await import("../src/lib/db/clock.ts");
+const { listSheets, patchSheet } = await import("../src/lib/db/sheets.ts");
+const { grantItemMath } = await import("../src/lib/dm/mutation-math.ts");
+const { withoutLeadingStopWords } = await import("../src/lib/language/language.ts");
+const { textKey } = await import("../src/lib/language/text-logic.ts");
+const italian = (thing) => withoutLeadingStopWords(textKey(thing), "italian");
 
 const world = await openWorld({ gameSettings: { ttsEnabled: false, npcMinds: true, npcStage: true } });
 const model = await fakeModel();
@@ -100,6 +105,62 @@ await test("an action aimed at a hero is left to the table as an attempt, and a 
   const notes = model.requests.map(textOf).filter((text) => text.includes("These are facts now"));
   assert.match(notes.at(-1), /\[aimed at Brakk: an attempt on a hero; resolve it with your tools now/);
   assert.match(notes.at(-1), /did not answer this turn/);
+});
+
+await test("pure rules: a hero only gains what the actor really carried and gives up; the heroes' own words reach every mind", () => {
+  assert.deepEqual(logic.carriesAfter(["una bottiglia di rum", "un remo"], { gains: [], loses: ["la bottiglia di rum"] }, italian), ["un remo"], "the article does not keep a lost thing on the record");
+  const handed = { outcome: "Mairon passa il rum a Brakk.", changes: [{ name: "Mairon", loses: ["la bottiglia di rum"] }, { name: "Brakk", gains: ["una bottiglia di rum"] }] };
+  assert.deepEqual(logic.heroGains(handed, "Mairon", ["Brakk"], ["una bottiglia di rum"], italian), [{ hero: "Brakk", thing: "una bottiglia di rum" }]);
+  assert.deepEqual(logic.heroGains(handed, "Mairon", ["Brakk"], [], italian), [], "a thing the actor never had is not handed");
+  assert.deepEqual(logic.heroGains(handed, "Kranz", ["Brakk"], ["una bottiglia di rum"], italian), [], "only the actor's own loss pays for a gift");
+  const forged = { outcome: "Brakk trova un tesoro.", changes: [{ name: "Brakk", gains: ["un tesoro"] }] };
+  assert.deepEqual(logic.heroGains(forged, "Mairon", ["Brakk"], ["una bottiglia di rum"], italian), [], "nothing made up for a hero");
+  const senses = logic.stageSenses("La zattera dondola. ".repeat(120), [], [{ name: "Brakk", text: "Mairon, passami il rum. Divido il pesce in sette pezzi." }]);
+  assert.match(senses, /^What the heroes just did and said, in their own words[^\n]*\n- Brakk: Mairon, passami il rum\. Divido il pesce in sette pezzi\./, "the hero's own words come first and whole");
+  assert.ok(senses.length <= 2000, "it still fits npc_speak's perceives");
+  const prompt = logic.renderRefereePrompt({ actor: "Mairon", intent: "porgo il rum", speech: "", people: [], scene: "", facts: [], heroLines: [{ name: "Brakk", text: "Mairon, passami il rum." }] });
+  assert.match(prompt, /What the heroes did and said this turn, in their own words:\n- Brakk: Mairon, passami il rum\./);
+  const note = logic.stageNote([], [], [{ hero: "Brakk", thing: "una bottiglia di rum", giver: "Mairon" }]);
+  assert.match(note, /Already on the heroes' sheets, do not grant again: Brakk got una bottiglia di rum from Mairon/);
+  assert.match(note, /If it left out something a hero did or said this turn, tell that first/);
+});
+
+await test("the rum: a hero asks a mind for its thing; the mind hears the hero's words, the referee sees the hero's pack, and the hand-over reaches the sheet", async () => {
+  // Mairon alone on stage, so the one ruling scripted is his.
+  for (const name of ["Amleth", "Volodar"]) {
+    minds.setNpcTier(getNpcByName(world.campaignId, name).id, "secondary");
+  }
+  npc("Mairon", { carries: ["una bottiglia di rum"] });
+  const own = listSheets(world.campaignId).find((sheet) => sheet.name === "Brakk");
+  patchSheet(own.id, { equipment: grantItemMath(own.equipment, "Pesce", 1, { identified: true }).equipment });
+  const hand = ego("Porgo la bottiglia di rum a Brakk.", "Tieni, vecchio.");
+  const ruling = json({
+    uncertain: false,
+    dc: 5,
+    modifier: 0,
+    hero: "",
+    success: { outcome: "Mairon porge la bottiglia di rum a Brakk.", changes: [{ name: "Mairon", loses: ["bottiglia di rum"] }, { name: "Brakk", gains: ["una bottiglia di rum"] }] },
+    failure: { outcome: "", changes: [] },
+  });
+  // The narrator's own retelling leaves the request out on purpose: the
+  // minds must still hear it from the player's own line.
+  model.script([reply({ text: "Il sole picchia sulla zattera." }), hand, ruling, reply({ text: "Il rum passa di mano." })]);
+  await model.turn(world, "Mairon, passami il rum: ne ho bisogno. Poi divido il pesce in sette pezzi.", brakk.id);
+  const asked = model.requests.filter((request) => String(request.messages?.[0]?.content ?? "").startsWith("You are one character"));
+  assert.equal(asked.length, 1, "the one mind on stage was asked");
+  for (const request of asked) {
+    assert.match(textOf(request), /- Brakk: Mairon, passami il rum: ne ho bisogno\. Poi divido il pesce in sette pezzi\./, "every mind hears the hero's own words, not only the retelling");
+  }
+  const referee = model.requests.filter((request) => String(request.messages?.[0]?.content ?? "").startsWith("You are the referee"));
+  assert.match(textOf(referee[0]), /- Brakk \(a hero\); has: [^\n]*Pesce/, "the referee sees what the hero really carries: the fish");
+  assert.match(textOf(referee[0]), /- Brakk: Mairon, passami il rum/, "and what the hero asked");
+  const pack = listSheets(world.campaignId).find((sheet) => sheet.name === "Brakk").equipment.map((item) => item.name);
+  assert.equal(pack.filter((name) => /rum/i.test(name)).length, 1, "the rum is on Brakk's sheet, once, not twice");
+  assert.ok(pack.includes("Pesce"), "and the fish is still his: the stage never takes from a hero");
+  assert.deepEqual(sheetOf("Mairon").carries, [], "and gone from Mairon");
+  const note = textOf(model.requests.at(-1));
+  assert.match(note, /Already on the heroes' sheets, do not grant again: Brakk got una bottiglia di rum from Mairon/);
+  assert.match(note, /A thing that changes hands by the hero's own deed you record now/, "the narrator keeps the hero's own deeds (the fish) on its side");
 });
 
 model.close();

@@ -308,6 +308,7 @@ import { listNpcs } from "@/lib/db/npcs";
 import { readStateGuard } from "@/lib/dm/npc-state-guard";
 import { stateGuardPrompt } from "@/lib/dm/npc-state-guard-logic";
 import { npcStageOn, runStage } from "@/lib/dm/npc-stage";
+import type { HeroLine } from "@/lib/dm/npc-stage-logic";
 import { awayArrivalNote, everyoneHears, handleNpcInform, handleNpcPast, handleNpcSpeak, mindRosterNotes, mindTurnRefusal, mindsAwaitingTurn, npcMindsOn } from "@/lib/dm/npc-mind";
 import { sceneMindsPrompt, TIME_SKIP_TOOLS } from "@/lib/dm/npc-mind-logic";
 import { mindLines, mindSpeeches, narratorLines, quotedLines } from "@/lib/dm/voice-knowledge-logic";
@@ -2971,7 +2972,7 @@ async function runAdvance(context: TurnContext, turn: DmTurn) {
       const callsSoFar = asksMinds ? turnCalls(turn.conversation, toolCalls) : [];
       // A staged table (npc-stage.ts): the engine runs their turns itself and
       // hands the narrator what was decided.
-      const staged = asksMinds && npcStageOn(campaign) ? await runStage(campaign, callsSoFar, turn.narrationParts.join("\n\n")) : null;
+      const staged = asksMinds && npcStageOn(campaign) ? await runStage(campaign, callsSoFar, turn.narrationParts.join("\n\n"), heroLinesOf(context)) : null;
       if (staged) {
         sceneMindsNudged = true;
         tableNoteCalls(staged.heroFacts ? 2 : 1);
@@ -3620,6 +3621,15 @@ function cardsToSettle(context: TurnContext, turn: DmTurn): PlayedCard[] {
       return [];
     }
     return intentNeedsTool(message.intent) || direct.has(cardCallKey(message.id)) ? [playedCard(context, { ...message, intent: message.intent })] : [];
+  });
+}
+
+// What the players posted this turn, by hero, for the stage: the minds hear
+// the heroes' own words, not only the narrator's retelling of them.
+function heroLinesOf(context: TurnContext): HeroLine[] {
+  return playerLinesSinceDm(context.campaign.id).flatMap((message) => {
+    const name = message.characterId ? context.sheetsById.get(message.characterId)?.name : undefined;
+    return name && message.content.trim() ? [{ name, text: message.content.trim() }] : [];
   });
 }
 
