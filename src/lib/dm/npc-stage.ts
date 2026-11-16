@@ -99,8 +99,16 @@ function sheetOf(campaign: Campaign, name: string): CharacterSheet | null {
 // tools the master calls (handle_item hand, grant_item, remove_item): one
 // ledger for every thing. The error when it could not be done; the giver
 // keeps what the server refused to move.
-function moveThing(campaign: Campaign, turnId: string, move: StageMove, actor: string, people: readonly StagePerson[], keyOf: (thing: string) => string): { done: StageMove } | { error: string } {
-  const plan = planMove(move, actor, people);
+function moveThing(
+  campaign: Campaign,
+  turnId: string,
+  move: StageMove,
+  actor: string,
+  people: readonly StagePerson[],
+  offered: readonly HeroLine[],
+  keyOf: (thing: string) => string,
+): { done: StageMove } | { error: string } {
+  const plan = planMove(move, actor, people, offered, keyOf);
   if (plan.kind === "refused") {
     return { error: `${move.thing}: ${plan.why}` };
   }
@@ -226,7 +234,7 @@ export async function runStage(
       // refuses did not happen, and the narrator is told so.
       const undone: string[] = [];
       for (const move of settled.branch.moves) {
-        const moved = moveThing(campaign, turnId, move, actor.name, people, thingKey);
+        const moved = moveThing(campaign, turnId, move, actor.name, people, heroLines, thingKey);
         if ("done" in moved) {
           handed.push(moved.done);
         } else {

@@ -117,6 +117,10 @@ await test("pure rules: a hero only gains what the actor really carried and give
   assert.deepEqual(logic.planMove({ thing: "la bottiglia di rum", from: "Mairon", to: "Brakk" }, "Mairon", people), { kind: "hand", thing: "la bottiglia di rum", from: "Mairon", to: "Brakk" });
   assert.equal(logic.planMove({ thing: "la bottiglia di rum", from: "Mairon", to: "Brakk" }, "Kranz", people).kind, "refused", "only the actor's own moves");
   assert.equal(logic.planMove({ thing: "Pesce", from: "Brakk", to: "Mairon" }, "Mairon", people).kind, "refused", "the stage never takes from a hero");
+  const offered = [{ name: "Brakk", text: "Brakk porge il suo pesce a Mairon: «Mangia.»" }];
+  assert.equal(logic.planMove({ thing: "il pesce", from: "Brakk", to: "Mairon" }, "Mairon", people, offered, italian).kind, "hand", "a thing the hero offered in their own words, the actor takes");
+  assert.equal(logic.planMove({ thing: "il pesce", from: "Brakk", to: "Kranz" }, "Kranz", people, [{ name: "Brakk", text: "Guardo il mare." }], italian).kind, "refused", "a thing the hero never named stays theirs");
+  assert.equal(logic.planMove({ thing: "il pesce", from: "Brakk", to: "Kranz" }, "Mairon", people, offered, italian).kind, "refused", "and only the actor takes it");
   assert.equal(logic.planMove({ thing: "un tesoro", from: "", to: "Brakk" }, "Mairon", people).kind, "refused", "nothing made up for a hero");
   assert.equal(logic.planMove({ thing: "un pesce", from: "", to: "Mairon" }, "Mairon", people).kind, "grant", "a character finds a thing");
   assert.equal(logic.planMove({ thing: "il remo", from: "Mairon", to: "" }, "Mairon", people).kind, "remove", "and loses one");
@@ -167,7 +171,7 @@ await test("the rum: a hero asks a mind for its thing; the mind hears the hero's
   assert.deepEqual(thingsOf("Mairon"), [], "and gone from Mairon");
   const note = textOf(model.requests.at(-1));
   assert.match(note, /Already recorded, do not record again: Mairon → Brakk: una bottiglia di rum/);
-  assert.match(note, /A thing that changes hands by the hero's own deed you record now/, "the narrator keeps the hero's own deeds (the fish) on its side");
+  assert.match(note, /A hero giving their own thing is the hero's deed, not a request: record it now/, "the narrator keeps the hero's own deeds (the fish) on its side");
 });
 
 model.close();

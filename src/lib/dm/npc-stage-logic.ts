@@ -56,8 +56,9 @@ export const STAGE_REFEREE_SYSTEM = [
   "dc: 5 easy, 10 moderate, 15 hard, 20 very hard; against a person, set it by how able and ready they are. modifier: -2 to 4, how apt this character is at this action, weakened by thirst, hunger or wounds.",
   "outcome: one or two short sentences in the action's language, saying what happened as a fact, complete: who did what to whom and how it ended. Never 'about to', never 'tries'.",
   "changes: only what the outcome plainly did to a body, for the people listed: drank or ate (a real drink, a real meal), condition wounded or unconscious. Never dead. Nothing changes for a hero's body.",
-  "moves: every thing that changed hands, was found or was lost, one entry each, with the thing's words as listed: {thing, from, to}. from and to are people listed; from \"\" for a thing found in the world (a fish caught), to \"\" for a thing lost or destroyed. This character is the from or the to of every move. A move from a hero never happens: an action aimed at a hero's body or belongings sets hero to that hero's name, and its outcome says only what the character attempts on them (the table resolves it). A hero may be the to of a thing this character hands over.",
+  "moves: every thing that changed hands, was found or was lost, one entry each, with the thing's words as listed: {thing, from, to}. from and to are people listed; from \"\" for a thing found in the world (a fish caught), to \"\" for a thing lost or destroyed. This character is the from or the to of every move. A hero may be the to of a thing this character hands over. A hero is the from only of a thing that hero gave or offered to this character in their own words this turn, which this character takes. Any other action aimed at a hero's body or belongings sets hero to that hero's name, and its outcome says only what the character attempts on them (the table resolves it).",
   "When a hero asked something of this character or reached for their things this turn, the outcome says how this character's action answers it.",
+  "A character who agrees to give, lend or hand over their own thing hands it over now: a move, never a promise or a gesture of holding it out. Only a condition this character states in their own words keeps it in their hands.",
   'Answer with ONE JSON object and nothing else: {"uncertain": true|false, "dc": number, "modifier": number, "hero": "" or the hero\'s name, "success": {"outcome": "...", "changes": [{"name": "...", "drank": true, "ate": true, "condition": "wounded"}], "moves": [{"thing": "...", "from": "...", "to": "..."}]}, "failure": {"outcome": "...", "changes": [], "moves": []}}. In changes give only the fields that changed. With uncertain false, failure may be empty.',
 ].join("\n");
 
@@ -180,7 +181,11 @@ export type StagePlan =
   | { kind: "remove"; thing: string; from: string }
   | { kind: "refused"; move: StageMove; why: string };
 
-export function planMove(move: StageMove, actor: string, people: readonly StagePerson[]): StagePlan {
+// offered: the heroes' own words this turn. A hero's thing goes to the
+// acting character only when that hero named it in them (Brakk: «porgo la
+// mezza galletta a Kaku», Kaku takes it): the hero's deed, the taker's
+// acceptance. Nothing else of a hero's moves on the stage.
+export function planMove(move: StageMove, actor: string, people: readonly StagePerson[], offered: readonly HeroLine[] = [], keyOf: ThingKey = textKey): StagePlan {
   const person = (name: string) => (name ? people.find((entry) => textKey(entry.name) === textKey(name)) : undefined);
   const from = person(move.from);
   const to = person(move.to);
@@ -191,7 +196,12 @@ export function planMove(move: StageMove, actor: string, people: readonly StageP
     return { kind: "refused", move, why: `${actor} is not part of it` };
   }
   if (from?.hero) {
-    return { kind: "refused", move, why: `a thing of ${from.name}'s is theirs to give up` };
+    const named = thingNamed(from.carries, move.thing, keyOf);
+    const said = offered.filter((line) => textKey(line.name) === textKey(from.name)).map((line) => keyOf(line.text)).join(" ");
+    const theirs = Boolean(named && to && textKey(to.name) === textKey(actor) && keyOf(named) && said.includes(keyOf(named)));
+    if (!theirs) {
+      return { kind: "refused", move, why: `a thing of ${from.name}'s is theirs to give up` };
+    }
   }
   if (from && to) {
     return { kind: "hand", thing: move.thing, from: from.name, to: to.name };
@@ -228,4 +238,4 @@ export function stageNote(facts: readonly StageFact[], silent: readonly string[]
 
 // The line the narrator's rules carry at a staged table.
 export const STAGE_RULES =
-  "This table runs a stage: after the players' action the engine itself gives every first-tier character present their turn and decides how it ends. So do NOT call npc_speak for a first-tier character who is in the scene with the party: resolve the players' action with your tools, narrate its outcome only, and stop; their turns reach you as decided facts to narrate. A players' action that needs one of those characters to decide (accepting or handing over their things, agreeing, answering a question or a demand) is not yours to decide and not yours to leave pending: narrate what the hero does and says, as done; that character hears the hero's own words and answers on the stage, and the engine records what changes hands. A thing that changes hands by the hero's own deed you record now, as one call: handle_item with action \"hand\", characterId the giver and toCharacterId the taker (a first-tier character is named by name). A grab, a shove or a threat is a contest, not a fight: start an encounter only when blows are really being traded.";
+  "This table runs a stage: after the players' action the engine itself gives every first-tier character present their turn and decides how it ends. So do NOT call npc_speak for a first-tier character who is in the scene with the party: resolve the players' action with your tools, narrate its outcome only, and stop; their turns reach you as decided facts to narrate. A players' action that needs one of those characters to decide (handing over their own things, agreeing, answering a question or a demand) is not yours to decide and not yours to leave pending: narrate what the hero does and says, as done; that character hears the hero's own words and answers on the stage, and the engine records what changes hands. A hero giving their own thing is the hero's deed, not a request: record it now, before you narrate, as one call: handle_item with action \"hand\", characterId the hero and toCharacterId the taker (a first-tier character is named by name). A taker who does not want it gives it back on the stage. A grab, a shove or a threat is a contest, not a fight: start an encounter only when blows are really being traded.";
