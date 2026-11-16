@@ -55,10 +55,10 @@ export const STAGE_REFEREE_SYSTEM = [
   "uncertain: false when nothing opposes the action and it cannot fail (drinking from an open barrel, speaking, handing over one's own thing, opening a lock with its key). True when someone resists or it is hard (taking a thing from a person, forcing a lock, striking, hiding something under watching eyes).",
   "dc: 5 easy, 10 moderate, 15 hard, 20 very hard; against a person, set it by how able and ready they are. modifier: -2 to 4, how apt this character is at this action, weakened by thirst, hunger or wounds.",
   "outcome: one or two short sentences in the action's language, saying what happened as a fact, complete: who did what to whom and how it ended. Never 'about to', never 'tries'.",
-  "changes: only what the outcome plainly did, for the people listed: drank or ate (a real drink, a real meal), things gained and lost (use the thing's words as listed when it is a listed thing), condition wounded or unconscious. Never dead.",
-  "A hero may only gain a thing this character hands them or lets them take, out of this character's own things: then the hero gains it and this character loses it, in the same branch. Nothing else changes for a hero: an action aimed at a hero's body or belongings sets hero to that hero's name, and its outcome says only what the character attempts on them (the table resolves it).",
+  "changes: only what the outcome plainly did to a body, for the people listed: drank or ate (a real drink, a real meal), condition wounded or unconscious. Never dead. Nothing changes for a hero's body.",
+  "moves: every thing that changed hands, was found or was lost, one entry each, with the thing's words as listed: {thing, from, to}. from and to are people listed; from \"\" for a thing found in the world (a fish caught), to \"\" for a thing lost or destroyed. This character is the from or the to of every move. A move from a hero never happens: an action aimed at a hero's body or belongings sets hero to that hero's name, and its outcome says only what the character attempts on them (the table resolves it). A hero may be the to of a thing this character hands over.",
   "When a hero asked something of this character or reached for their things this turn, the outcome says how this character's action answers it.",
-  'Answer with ONE JSON object and nothing else: {"uncertain": true|false, "dc": number, "modifier": number, "hero": "" or the hero\'s name, "success": {"outcome": "...", "changes": [{"name": "...", "drank": true, "ate": true, "gains": ["..."], "loses": ["..."], "condition": "wounded"}]}, "failure": {"outcome": "...", "changes": []}}. In changes give only the fields that changed. With uncertain false, failure may be empty.',
+  'Answer with ONE JSON object and nothing else: {"uncertain": true|false, "dc": number, "modifier": number, "hero": "" or the hero\'s name, "success": {"outcome": "...", "changes": [{"name": "...", "drank": true, "ate": true, "condition": "wounded"}], "moves": [{"thing": "...", "from": "...", "to": "..."}]}, "failure": {"outcome": "...", "changes": [], "moves": []}}. In changes give only the fields that changed. With uncertain false, failure may be empty.',
 ].join("\n");
 
 export function renderRefereePrompt(input: {
@@ -84,11 +84,13 @@ export function renderRefereePrompt(input: {
     .join("\n\n");
 }
 
-export type StageChange = { name: string; drank: boolean; ate: boolean; gains: string[]; loses: string[]; condition: "" | "wounded" | "unconscious" };
-export type StageBranch = { outcome: string; changes: StageChange[] };
+export type StageChange = { name: string; drank: boolean; ate: boolean; condition: "" | "wounded" | "unconscious" };
+// A thing changing hands: from "" is found in the world, to "" is lost.
+export type StageMove = { thing: string; from: string; to: string };
+export type StageBranch = { outcome: string; changes: StageChange[]; moves: StageMove[] };
 export type StageRuling = { uncertain: boolean; dc: number; modifier: number; hero: string; success: StageBranch; failure: StageBranch };
 
-const strings = (value: unknown) => (Array.isArray(value) ? value.filter((item): item is string => typeof item === "string" && Boolean(item.trim())).map((item) => item.trim().slice(0, 120)).slice(0, 4) : []);
+const word = (value: unknown, max: number) => (typeof value === "string" ? value.trim().slice(0, max) : "");
 
 function branchOf(value: unknown): StageBranch {
   const record = value && typeof value === "object" ? (value as Record<string, unknown>) : {};
@@ -99,11 +101,14 @@ function branchOf(value: unknown): StageBranch {
       name: String(entry.name).trim(),
       drank: entry.drank === true,
       ate: entry.ate === true,
-      gains: strings(entry.gains),
-      loses: strings(entry.loses),
       condition: entry.condition === "wounded" || entry.condition === "unconscious" ? entry.condition : "",
     }));
-  return { outcome: typeof record.outcome === "string" ? record.outcome.trim().slice(0, 500) : "", changes };
+  const moves = (Array.isArray(record.moves) ? record.moves : [])
+    .filter((entry): entry is Record<string, unknown> => Boolean(entry) && typeof entry === "object")
+    .map((entry): StageMove => ({ thing: word(entry.thing, 120), from: word(entry.from, 80), to: word(entry.to, 80) }))
+    .filter((move) => move.thing && (move.from || move.to))
+    .slice(0, 6);
+  return { outcome: typeof record.outcome === "string" ? record.outcome.trim().slice(0, 500) : "", changes, moves };
 }
 
 export function parseRuling(text: string): { ok: true; ruling: StageRuling } | { ok: false; error: string } {
@@ -147,50 +152,65 @@ export function settleRuling(ruling: StageRuling, die: number): { branch: StageB
 // otherwise.
 export type ThingKey = (thing: string) => string;
 
-// What a person carries after a change: lost things by their telling words,
-// gained things added once.
-export function carriesAfter(carries: readonly string[], change: Pick<StageChange, "gains" | "loses">, keyOf: ThingKey = textKey): string[] {
-  const lost = change.loses.map(keyOf);
-  const kept = carries.filter((thing) => !lost.some((gone) => gone && (keyOf(thing).includes(gone) || gone.includes(keyOf(thing)))));
-  const fresh = change.gains.filter((thing) => !kept.some((held) => keyOf(held) === keyOf(thing)));
-  return [...kept, ...fresh];
-}
-
-// What a ruling's branch may hand a hero: only things the acting character
-// really carried and loses in the same branch. The referee never takes from a
-// hero or makes a thing up; anything else for a hero is an attempt the table
-// resolves.
-export function heroGains(branch: StageBranch, actor: string, heroes: readonly string[], carried: readonly string[], keyOf: ThingKey = textKey): { hero: string; thing: string }[] {
-  const owned = carried.map(keyOf).filter(Boolean);
-  const held = (key: string) => owned.some((thing) => thing.includes(key) || key.includes(thing));
-  const lost = branch.changes
-    .filter((change) => textKey(change.name) === textKey(actor))
-    .flatMap((change) => change.loses.map(keyOf))
-    .filter((key) => key && held(key));
-  const given: { hero: string; thing: string }[] = [];
-  for (const change of branch.changes) {
-    const hero = heroes.find((name) => textKey(name) === textKey(change.name));
-    if (!hero) {
-      continue;
-    }
-    for (const thing of change.gains) {
-      const key = keyOf(thing);
-      if (key && lost.some((gone) => gone.includes(key) || key.includes(gone))) {
-        given.push({ hero, thing });
-      }
-    }
+// The line in someone's things a referee's words name: exact, then by key
+// either way round ("bottiglia di rum" names "una bottiglia di rum"). Null
+// when nothing or more than one line fits.
+export function thingNamed(things: readonly string[], words: string, keyOf: ThingKey = textKey): string | null {
+  const key = keyOf(words);
+  if (!key) {
+    return null;
   }
-  return given;
+  const exact = things.filter((thing) => keyOf(thing) === key);
+  if (exact.length) {
+    return exact[0];
+  }
+  const near = things.filter((thing) => {
+    const held = keyOf(thing);
+    return held && (held.includes(key) || key.includes(held));
+  });
+  return near.length === 1 ? near[0] : null;
 }
 
-export type StageFact = { actor: string; speech: string; outcome: string; roll: string; hero: string };
+// What the server does with one move, or why it does not: the acting
+// character is on one side of it, a hero is never the one who gives it up,
+// and only people present take part.
+export type StagePlan =
+  | { kind: "hand"; thing: string; from: string; to: string }
+  | { kind: "grant"; thing: string; to: string }
+  | { kind: "remove"; thing: string; from: string }
+  | { kind: "refused"; move: StageMove; why: string };
+
+export function planMove(move: StageMove, actor: string, people: readonly StagePerson[]): StagePlan {
+  const person = (name: string) => (name ? people.find((entry) => textKey(entry.name) === textKey(name)) : undefined);
+  const from = person(move.from);
+  const to = person(move.to);
+  if ((move.from && !from) || (move.to && !to)) {
+    return { kind: "refused", move, why: "not everyone in it is here" };
+  }
+  if (![from, to].some((side) => side && textKey(side.name) === textKey(actor))) {
+    return { kind: "refused", move, why: `${actor} is not part of it` };
+  }
+  if (from?.hero) {
+    return { kind: "refused", move, why: `a thing of ${from.name}'s is theirs to give up` };
+  }
+  if (from && to) {
+    return { kind: "hand", thing: move.thing, from: from.name, to: to.name };
+  }
+  if (to) {
+    return to.hero ? { kind: "refused", move, why: "a hero finds things on their own turn" } : { kind: "grant", thing: move.thing, to: to.name };
+  }
+  return { kind: "remove", thing: move.thing, from: (from as StagePerson).name };
+}
+
+export type StageFact = { actor: string; speech: string; outcome: string; roll: string; hero: string; undone?: string[] };
 
 export function factLine(fact: StageFact): string {
-  return `${fact.actor}${fact.speech ? ` says: «${fact.speech}»` : ""}${fact.speech ? " and " : " "}${fact.outcome ? `→ ${fact.outcome}` : "does nothing"}`;
+  const undone = fact.undone?.length ? ` (the engine could not record: ${fact.undone.join("; ")}; tell it as not happening)` : "";
+  return `${fact.actor}${fact.speech ? ` says: «${fact.speech}»` : ""}${fact.speech ? " and " : " "}${fact.outcome ? `→ ${fact.outcome}` : "does nothing"}${undone}`;
 }
 
 // What the narrator is handed: facts, already decided.
-export function stageNote(facts: readonly StageFact[], silent: readonly string[], handed: readonly { hero: string; thing: string; giver: string }[] = []): string {
+export function stageNote(facts: readonly StageFact[], silent: readonly string[], handed: readonly { thing: string; from: string; to: string }[] = []): string {
   return [
     "[Table note] After the players, every character on stage took their own turn, each from their own mind, and the engine's referee already decided how each action ended and recorded it (who drank, ate, took or lost what).",
     "These are facts now. Narrate them in this order, each one complete, as it ended:",
@@ -198,7 +218,7 @@ export function stageNote(facts: readonly StageFact[], silent: readonly string[]
     silent.length ? `${silent.join(", ")} did not answer this turn: say nothing for them.` : "",
     "Voice the words between «» exactly as given. Leave none of these out, change no outcome, add no other deed or word for these characters, and never write one as about to happen or still undecided. Do not call npc_speak or npc_state for them: it is done.",
     handed.length
-      ? `Already on the heroes' sheets, do not grant again: ${handed.map((gift) => `${gift.hero} got ${gift.thing} from ${gift.giver}`).join("; ")}.`
+      ? `Already recorded, do not record again: ${handed.map((move) => `${move.from || "found"} → ${move.to || "lost"}: ${move.thing}`).join("; ")}.`
       : "",
     "The narration so far stands: tell only what these turns add. If it left out something a hero did or said this turn, tell that first, as done, and record any thing it moved with your tools.",
   ]
@@ -208,4 +228,4 @@ export function stageNote(facts: readonly StageFact[], silent: readonly string[]
 
 // The line the narrator's rules carry at a staged table.
 export const STAGE_RULES =
-  "This table runs a stage: after the players' action the engine itself gives every first-tier character present their turn and decides how it ends. So do NOT call npc_speak for a first-tier character who is in the scene with the party: resolve the players' action with your tools, narrate its outcome only, and stop; their turns reach you as decided facts to narrate. A players' action that needs one of those characters to decide (accepting or handing over their things, agreeing, answering a question or a demand) is not yours to decide and not yours to leave pending: narrate what the hero does and says, as done; that character hears the hero's own words and answers on the stage, and the engine records what changes hands. A thing that changes hands by the hero's own deed you record now: grant_item for the hero who gets it, remove_item for the hero who gives it, npc_state carries for the character on the other side. A grab, a shove or a threat is a contest, not a fight: start an encounter only when blows are really being traded.";
+  "This table runs a stage: after the players' action the engine itself gives every first-tier character present their turn and decides how it ends. So do NOT call npc_speak for a first-tier character who is in the scene with the party: resolve the players' action with your tools, narrate its outcome only, and stop; their turns reach you as decided facts to narrate. A players' action that needs one of those characters to decide (accepting or handing over their things, agreeing, answering a question or a demand) is not yours to decide and not yours to leave pending: narrate what the hero does and says, as done; that character hears the hero's own words and answers on the stage, and the engine records what changes hands. A thing that changes hands by the hero's own deed you record now, as one call: handle_item with action \"hand\", characterId the giver and toCharacterId the taker (a first-tier character is named by name). A grab, a shove or a threat is a contest, not a fight: start an encounter only when blows are really being traded.";

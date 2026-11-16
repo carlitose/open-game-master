@@ -10,7 +10,11 @@ import { getActiveEncounter } from "@/lib/db/encounters";
 import { getCurrentLocation } from "@/lib/db/locations";
 import { addNpcMemories, getNpcAway } from "@/lib/db/npc-minds";
 import { listNpcs, setNpcState, type Npc } from "@/lib/db/npcs";
-import { listSheets } from "@/lib/db/sheets";
+import { castSheetFor, npcThings } from "@/lib/db/cast-sheets";
+import { getSheetById, listSheets } from "@/lib/db/sheets";
+import type { CharacterSheet } from "@/lib/schemas/sheet";
+import { withCastSheets } from "@/lib/dm/cast-sheet-refs";
+import { handleItemCall } from "@/lib/dm/gear-tool";
 import { rollExpression } from "@/lib/dice";
 import { currentTurnId } from "@/lib/dm/job-control";
 import { requestDmMessage } from "@/lib/dm/model";
@@ -19,16 +23,17 @@ import { handleNpcSpeak, npcMindsOn, tierOfNpc } from "@/lib/dm/npc-mind";
 import { ON_STAGE_SOURCE, recipientsOf } from "@/lib/dm/npc-mind-logic";
 import {
   STAGE_REFEREE_SYSTEM,
-  carriesAfter,
   factLine,
-  heroGains,
   parseRuling,
+  planMove,
   renderRefereePrompt,
   settleRuling,
   stageNote,
   stageOrder,
   stageSenses,
+  thingNamed,
   type HeroLine,
+  type StageMove,
   type StageFact,
   type StagePerson,
   type StageRuling,
@@ -76,26 +81,75 @@ async function referee(campaign: Campaign, prompt: string): Promise<StageRuling 
   }
 }
 
-function handToHero(campaign: Campaign, turnId: string, hero: string, thing: string, giver: string): boolean {
-  const sheets = listSheets(campaign.id);
-  const sheet = sheets.find((entry) => textKey(entry.name) === textKey(hero));
-  if (!sheet) {
-    return false;
+// The sheet a person on stage keeps their things on: a hero's or a
+// companion's own, a first-tier character's cast sheet (made now if new).
+function sheetOf(campaign: Campaign, name: string): CharacterSheet | null {
+  const own = listSheets(campaign.id).find((sheet) => textKey(sheet.name) === textKey(name));
+  if (own) {
+    return own;
   }
-  const outcome = applyDmMutation(
-    campaign,
-    turnId,
-    "grant_item",
-    JSON.stringify({ characterId: sheet.id, item: thing, qty: 1, reason: `${giver} handed it over on the stage.` }),
-    sheets,
-    new Map(sheets.map((entry) => [entry.id, entry])),
-  );
-  const result = (outcome as { result?: { error?: string } }).result;
-  if (result?.error) {
-    console.warn(`[npc-stage] ${giver} handed ${hero} "${thing}", but the sheet refused it: ${result.error}`);
-    return false;
+  const npc = listNpcs(campaign.id).find((entry) => !entry.archived && [entry.name, ...entry.aliases].some((alias) => textKey(alias) === textKey(name)));
+  if (!npc) {
+    return null;
   }
-  return true;
+  return npc.companionSheetId ? getSheetById(npc.companionSheetId) : castSheetFor(npc);
+}
+
+// One thing the referee moved, done by the server through the same item
+// tools the master calls (handle_item hand, grant_item, remove_item): one
+// ledger for every thing. The error when it could not be done; the giver
+// keeps what the server refused to move.
+function moveThing(campaign: Campaign, turnId: string, move: StageMove, actor: string, people: readonly StagePerson[], keyOf: (thing: string) => string): { done: StageMove } | { error: string } {
+  const plan = planMove(move, actor, people);
+  if (plan.kind === "refused") {
+    return { error: `${move.thing}: ${plan.why}` };
+  }
+  const reason = `${actor}, on the stage.`;
+  let name: string;
+  let args: Record<string, unknown>;
+  if (plan.kind === "grant") {
+    const to = sheetOf(campaign, plan.to);
+    if (!to) {
+      return { error: `${move.thing}: no sheet for ${plan.to}` };
+    }
+    name = "grant_item";
+    args = { characterId: to.id, item: plan.thing, qty: 1, reason };
+  } else {
+    const from = sheetOf(campaign, plan.from);
+    const line = from ? thingNamed(from.equipment.map((item) => item.name), plan.thing, keyOf) : null;
+    if (!from || !line) {
+      return { error: `${plan.from} has no ${move.thing}` };
+    }
+    if (plan.kind === "remove") {
+      name = "remove_item";
+      args = { characterId: from.id, item: line, qty: 1, reason };
+    } else {
+      const to = sheetOf(campaign, plan.to);
+      if (!to) {
+        return { error: `${move.thing}: no sheet for ${plan.to}` };
+      }
+      name = "handle_item";
+      args = { characterId: from.id, action: "hand", item: line, qty: 1, toCharacterId: to.id, reason };
+    }
+  }
+  const raw = JSON.stringify(args);
+  const table = listSheets(campaign.id);
+  const context = withCastSheets({ campaign, sheets: table, sheetsById: new Map(table.map((sheet) => [sheet.id, sheet])) }, name, raw);
+  const result =
+    name === "handle_item"
+      ? handleItemCall(campaign, raw, context.sheets, context.sheetsById, null)
+      : (applyDmMutation(campaign, turnId, name, raw, context.sheets, context.sheetsById) as { result: Record<string, unknown> }).result;
+  if (result && typeof result === "object" && "error" in result && result.error) {
+    console.warn(`[npc-stage] ${actor}: "${move.thing}" ${move.from || "found"} → ${move.to || "lost"} refused: ${String(result.error)}`);
+    return { error: `${move.thing}: ${String(result.error)}` };
+  }
+  return { done: { thing: plan.kind === "grant" ? plan.thing : (args.item as string), from: plan.kind === "grant" ? "" : plan.from, to: plan.kind === "remove" ? "" : plan.to } };
+}
+
+// What a present first-tier character has on them, as the referee reads it.
+function thingsOf(npc: Npc): string[] {
+  const sheet = npc.companionSheetId ? getSheetById(npc.companionSheetId) : null;
+  return sheet ? sheet.equipment.map((item) => item.name) : npcThings(npc);
 }
 
 // One turn of the stage. Null when nobody on stage is owed a turn (a fight
@@ -124,7 +178,7 @@ export async function runStage(
   const heroes = heroSheets().map((sheet) => sheet.name);
   const facts: StageFact[] = [];
   const silent: string[] = [];
-  const handed: { hero: string; thing: string; giver: string }[] = [];
+  const handed: StageMove[] = [];
   const thingKey = (thing: string) => withoutLeadingStopWords(textKey(thing), campaign.gameSettings.tableLanguage);
   const waiting = new Set(order.map((npc) => npc.id));
   // Every mind reacts to the same moment at once (a local model serves them
@@ -149,7 +203,7 @@ export async function runStage(
       ...heroSheets().map((sheet) => ({ name: sheet.name, state: "", carries: sheet.equipment.map((item) => item.name), hero: true })),
       ...cast
         .filter((npc) => present.some((entry) => entry.id === npc.id))
-        .map((npc) => ({ name: npc.name, state: [npcStateWords({ ...npc.state, carries: [] }), needsWords(npc.state, now)].filter(Boolean).join(", "), carries: npc.state.carries })),
+        .map((npc) => ({ name: npc.name, state: [npcStateWords({ ...npc.state, carries: [] }), needsWords(npc.state, now)].filter(Boolean).join(", "), carries: thingsOf(npc) })),
     ];
     const ruling = intent ? await referee(campaign, renderRefereePrompt({ actor: actor.name, intent, speech, people, scene: narration, facts: lines, heroLines })) : null;
     let fact: StageFact = { actor: actor.name, speech, outcome: intent, roll: "", hero: "" };
@@ -163,25 +217,24 @@ export async function runStage(
         }
         setNpcState(target.id, {
           ...target.state,
-          carries: carriesAfter(target.state.carries, change, thingKey),
           ...(change.drank ? { drankAt: now } : {}),
           ...(change.ate ? { ateAt: now } : {}),
           ...(change.condition && target.state.condition !== "dead" ? { condition: change.condition } : {}),
         });
       }
-      // What this character handed a hero goes on the hero's sheet, through
-      // the same mutation as grant_item: one ledger for every thing.
-      const carried = cast.find((npc) => npc.id === actor.id)?.state.carries ?? [];
-      for (const gift of heroGains(settled.branch, actor.name, heroes, carried, thingKey)) {
-        if (handToHero(campaign, turnId, gift.hero, gift.thing, actor.name)) {
-          handed.push({ ...gift, giver: actor.name });
-          continue;
+      // Every thing that moved, moved by the server on the sheets: a move it
+      // refuses did not happen, and the narrator is told so.
+      const undone: string[] = [];
+      for (const move of settled.branch.moves) {
+        const moved = moveThing(campaign, turnId, move, actor.name, people, thingKey);
+        if ("done" in moved) {
+          handed.push(moved.done);
+        } else {
+          undone.push(moved.error);
         }
-        // The sheet refused it (no room): it stays with the giver, not lost.
-        const giver = listNpcs(campaign.id).find((npc) => npc.id === actor.id);
-        if (giver) {
-          setNpcState(giver.id, { ...giver.state, carries: carriesAfter(giver.state.carries, { gains: [gift.thing], loses: [] }, thingKey) });
-        }
+      }
+      if (undone.length) {
+        fact = { ...fact, undone };
       }
     }
     facts.push(fact);
