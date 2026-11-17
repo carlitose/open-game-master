@@ -54,7 +54,7 @@ export function weatherOnBodies(campaign: Campaign, npcs: readonly Npc[]) {
 
 // Everything in sight here a need could reach for: what lies loose, what the
 // heroes and the minds here hold.
-function visibleThings(campaign: Campaign, present: readonly Npc[]): Visible[] {
+export function visibleThings(campaign: Campaign, present: readonly Npc[]): Visible[] {
   const here = textKey(getCurrentLocation(campaign.id)?.name ?? "");
   const ground = listDroppedItems(campaign.id)
     .filter((entry) => !entry.heldByEnemy && (!here || textKey(entry.place) === here))

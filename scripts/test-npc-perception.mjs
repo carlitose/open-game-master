@@ -50,6 +50,24 @@ await test("the senses: the actor knows its deed, the awake see and hear, the ta
   assert.deepEqual(silent, [], "a silent invisible deed reaches nobody");
 });
 
+await test("the change a mind notices: gone, come, moved, bound, a thing in other hands; the first look says nothing", async () => {
+  const look = await import("../src/lib/dm/look-logic.ts");
+  const before = { people: [{ name: "Brakk", zone: "bordo", looks: "" }, { name: "Ottone Kranz", zone: "centro", looks: "" }, { name: "Mairon", zone: "centro", looks: "" }], things: [{ name: "una coperta lacera", owner: "Kaku" }, { name: "una ciotola di legno", owner: "Gruoch" }, { name: "Galletta", owner: "" }] };
+  assert.deepEqual(look.lookChanges(null, before, "Kaku"), [], "nothing to compare the first look with");
+  assert.deepEqual(look.lookChanges(before, before, "Kaku"), [], "nothing changed, nothing said");
+  const now = { people: [{ name: "Ottone Kranz", zone: "bordo", looks: "" }, { name: "Mairon", zone: "centro", looks: "tied up" }, { name: "Ioshua", zone: "centro", looks: "" }], things: [{ name: "una coperta lacera", owner: "Ottone Kranz" }, { name: "Galletta", owner: "" }, { name: "Galletta", owner: "Mairon" }] };
+  const lines = look.lookChanges(before, now, "Kaku");
+  assert.ok(lines.includes("Brakk is no longer here (they were at bordo)."), lines.join("\n"));
+  assert.ok(lines.includes("Ioshua is here now, at centro, and was not before."));
+  assert.ok(lines.includes("Ottone Kranz now stands at bordo (before: centro)."));
+  assert.ok(lines.includes("Mairon is now tied up."));
+  assert.ok(lines.includes("una coperta lacera: held before by you, now by Ottone Kranz."), "its own blanket gone to another");
+  assert.ok(lines.includes("una ciotola di legno (Gruoch) is no longer in sight."));
+  assert.ok(lines.includes("Mairon now has Galletta."));
+  assert.equal(look.changeImportance("Brakk is no longer here (they were at bordo)."), 2);
+  assert.equal(look.changeImportance("Ottone Kranz now stands at bordo (before: centro)."), 1);
+});
+
 await test("a perceived event reads as the observer took it in, and only by the channels that reached them", () => {
   const event = { actor: "Ottone Kranz", verb: "push", targets: ["Kaku"], speech: "Spostati.", outcome: "Ottone Kranz spinge Kaku verso il bordo." };
   assert.equal(events.perceivedLine(event, "Ottone Kranz", ["sight", "hearing", "touch"]), "You said «Spostati.» You did: Ottone Kranz spinge Kaku verso il bordo.");

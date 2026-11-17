@@ -159,6 +159,13 @@ Per ogni osservatore O ed evento E nello stesso luogo:
 - **Apparenza, non interiorità**: degli altri vede i moodle ≥3 come segni ("trema", "barcolla",
   "si stringe lo stomaco"), le condizioni visibili (legato, ferito, a terra), cosa tiene in mano.
   Mai "ha fame".
+- **Cambiamento, non solo stato** (2026-11-18, `look-logic.ts`): a ogni turno in scena la mente
+  confronta il suo sguardo attuale (chi è presente, in che zona, come appare; gli oggetti in vista
+  e chi li tiene) con l'ultimo che ha tenuto (`npc_looks`). Le differenze arrivano come «What changed
+  since you last looked» e diventano memoria («You noticed: …»; chi sparisce o un proprio oggetto
+  perso pesano 2). Vede la differenza, non come è avvenuta. Il primo sguardo fissa la base e non
+  dice nulla. Nato dalla Zattera: Brakk reso invisibile tra due turni, senza nessun evento, e i
+  naufraghi continuavano a parlare al punto dove sedeva.
 
 ## 8. Corpo (moodle, alla Project Zomboid)
 
