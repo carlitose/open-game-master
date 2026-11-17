@@ -25,7 +25,9 @@ export type Observer = {
 // the weather lets one see (0 the same zone, 1 next to it, 2 the whole
 // place), whether it is dark with no light, and how much wind and rain
 // cover voices (each step takes a zone off what a voice reaches).
-export type SenseScene = { zones: PlaceZones | null; eventZone: string; sightRange: Distance; dark: boolean; noise: 0 | 1 };
+// `unseen`: who here no eye can see (the invisible condition): their deeds
+// reach the others only by sound and touch.
+export type SenseScene = { zones: PlaceZones | null; eventZone: string; sightRange: Distance; dark: boolean; noise: 0 | 1; unseen?: readonly string[] };
 
 const OPEN_SCENE: SenseScene = { zones: null, eventZone: "", sightRange: 2, dark: false, noise: 0 };
 
@@ -63,7 +65,8 @@ export function perceive(event: Pick<SceneEvent, "actor" | "verb" | "targets" | 
     const touched = onMe && PHYSICAL_VERBS.has(event.verb);
     const hidden = event.covert && !touched && !(typeof event.stealth === "number" && (observer.passive ?? 10) >= event.stealth);
     const far = observer.zone && scene.eventZone ? distance(scene.zones, observer.zone, scene.eventZone) : 0;
-    const seen = far <= scene.sightRange && (!scene.dark || far === 0);
+    const invisible = (scene.unseen ?? []).some((name) => textKey(name) === textKey(event.actor));
+    const seen = !invisible && far <= scene.sightRange && (!scene.dark || far === 0);
     const heard = far <= voiceReach(event.volume, scene.noise);
     if (awake && seen && !hidden) {
       channels.push("sight");

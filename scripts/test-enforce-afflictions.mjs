@@ -288,5 +288,12 @@ await test("Lesser restoration ends a disease the engine holds, and the long res
   assert.equal((getClock(world.campaignId).afflictions?.[giggler.id] ?? []).length, 0);
 });
 
+await test("an immortal hero takes no damage", async () => {
+  const god = world.addHero({ class: "fighter", level: 5, maxHp: 44 });
+  world.patch(god.id, { conditions: ["invisible", "immortal"] });
+  const out = await world.invoke("apply_damage", { characterId: god.id, amount: 30, type: "slashing", reason: "a blade" });
+  assert.equal(world.sheet(god.id).currentHp, 44, JSON.stringify(out));
+});
+
 world.close();
 finish();

@@ -4,6 +4,7 @@
 // weather let through. The zones-logic rules decide; this reads and writes.
 import type { Campaign } from "@/lib/db/campaigns";
 import { getCurrentLocation } from "@/lib/db/locations";
+import { listSheets } from "@/lib/db/sheets";
 import { getPlaceZones, listPositions, placeZonesKnown, positionOf, setPlaceZones, setPosition } from "@/lib/db/scene-zones";
 import { requestDmMessage } from "@/lib/dm/model";
 import { egoChoice } from "@/lib/dm/npc-mind";
@@ -11,6 +12,7 @@ import type { SenseScene } from "@/lib/dm/senses-logic";
 import { currentScene } from "@/lib/dm/sky";
 import { ZONES_SYSTEM, parseZoneProposal, positionsLine, renderZonesPrompt, zoneNamed, type PlaceZones } from "@/lib/dm/zones-logic";
 import { resolveTextTimeoutMs } from "@/lib/model-client";
+import { textKey } from "@/lib/language/text-logic";
 import { weatherObscurementTiles } from "@/lib/srd/weather";
 import { stripReasoningArtifacts } from "@/lib/story-prompt";
 
@@ -79,6 +81,15 @@ export function moveTo(campaign: Campaign, name: string, zone: string): string {
   return real ?? "";
 }
 
+// The heroes no eye can see: the invisible condition on their sheet (the
+// Zattera's observer, 2026-11-18: Brakk an invisible, deathless god among the
+// castaways). The referee still knows where they are; the minds do not.
+export function unseenHeroes(campaignId: string): string[] {
+  return listSheets(campaignId)
+    .filter((sheet) => sheet.conditions.some((condition) => textKey(condition) === "invisible"))
+    .map((sheet) => sheet.name);
+}
+
 // What the light and the weather let through, for an event in `eventZone`.
 export function senseScene(campaign: Campaign, eventZone: string): SenseScene {
   const place = placeName(campaign);
@@ -91,6 +102,7 @@ export function senseScene(campaign: Campaign, eventZone: string): SenseScene {
     sightRange: tiles <= 6 ? 0 : tiles <= 12 ? 1 : 2,
     dark: scene.isDark,
     noise: windy ? 1 : 0,
+    unseen: unseenHeroes(campaign.id),
   };
 }
 
@@ -102,5 +114,7 @@ export function whereEveryoneIs(campaign: Campaign, self?: string): string {
     return "";
   }
   const own = self ? positionOf(campaign.id, place, self) : "";
-  return `${own ? `You stand at: ${own}. ` : ""}The parts of this place and who is in each: ${positionsLine(zones, listPositions(campaign.id, place), self)}.`;
+  const unseen = new Set(self ? unseenHeroes(campaign.id).map(textKey) : []);
+  const positions = listPositions(campaign.id, place).filter((entry) => !unseen.has(textKey(entry.name)));
+  return `${own ? `You stand at: ${own}. ` : ""}The parts of this place and who is in each: ${positionsLine(zones, positions, self)}.`;
 }

@@ -263,6 +263,11 @@ export function applyPcDamage(
   if (sheet.deathSaves?.dead) {
     return { error: `${sheet.name} is already dead.`, retry: true };
   }
+  // A deathless being (an "immortal" condition the table sets; the Zattera's
+  // god, 2026-11-18): no blow takes anything from it.
+  if (sheet.conditions.some((condition) => condition.trim().toLowerCase() === "immortal")) {
+    return { ok: true, hp: `${sheet.currentHp}/${effectiveMaxHp(sheet)}`, note: `${sheet.name} is immortal: the blow takes nothing.` };
+  }
   // Hardened: "reduce all damage you take this round by your CON modifier",
   // before resistance (SRD 5.1: resistance comes after every other modifier).
   const cut = input.cut ? 0 : genreDamageCut(sheet);
