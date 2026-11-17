@@ -392,6 +392,30 @@ export function parseProposal(text: string): { ok: true; proposal: NpcProposal }
   return { ok: true, proposal };
 }
 
+// A reply whose last word is to SPEAK, read without the Ego (the Zattera
+// run after the one-of-three prompt, 2026-11-18): the narrator's model, given
+// "SAY: Brakk, «...»", wrote the words into the intent ("I turn to Brakk:
+// «...»") and left speech empty, so every voice on the raft fell silent.
+// The words are plain enough to take as they are; a DO or a PASS still goes
+// to the Ego, which turns a gesture into a step.
+export function readSpokenReply(reply: string): NpcProposal | null {
+  const lines = reply.split("\n").map((line) => line.replace(/^[\s*_#>-]+|[\s*_]+$/g, "")).filter(Boolean);
+  const label = (line: string) => /^(SAY|DO|PASS|DICO|FACCIO|PASSO)\s*\**\s*:/i.exec(line)?.[1]?.toUpperCase() ?? "";
+  const last = [...lines].reverse().find((line) => label(line) !== "");
+  if (!last || !["SAY", "DICO"].includes(label(last))) {
+    return null;
+  }
+  const said = last.replace(/^[^:]*:\s*/, "");
+  const quoted = /[«“"]([^»”"]+)[»”"]/.exec(said)?.[1]?.trim();
+  const speech = clipText((quoted ?? said.replace(/^[^,«“"]{1,60},\s*/, "")).trim(), MIND_TEXT_CHARS * 2);
+  if (!speech || /^(nulla|niente|nothing|none)\.?$/i.test(speech)) {
+    return null;
+  }
+  const thought = lines.find((line) => /^(THINK|PENSO)\s*:/i.test(line))?.replace(/^[^:]*:\s*/, "") ?? "";
+  const lie = lines.some((line) => /^(LYING|MENTO)\s*:\s*(yes|s[iì])\b/i.test(line));
+  return { speech, intent: "", conclusion: clipText(thought, MIND_TEXT_CHARS * 2), lie };
+}
+
 // The reader that turns a mind's free reply into the engine's terms (the
 // raft sandbox, 2026-11-16): the character's model plays, a stronger one
 // only transcribes. It keeps the meaning whole, harsh or cruel as it is.
