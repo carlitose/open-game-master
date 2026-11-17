@@ -66,6 +66,12 @@ await test("the change a mind notices: gone, come, moved, bound, a thing in othe
   assert.ok(lines.includes("Mairon now has Galletta."));
   assert.equal(look.changeImportance("Brakk is no longer here (they were at bordo)."), 2);
   assert.equal(look.changeImportance("Ottone Kranz now stands at bordo (before: centro)."), 1);
+  const more = { people: [], things: [{ name: "una coperta lacera x2", owner: "Kaku" }] };
+  assert.deepEqual(look.lookChanges({ people: [], things: [{ name: "una coperta lacera", owner: "Kaku" }] }, more, "Kaku"), [], "a second blanket is not the first one lost");
+  const told = events.withoutUnseen({ actor: "Mairon", targets: ["Brakk", "Amleth"], outcome: "Mairon chiede a Brakk, Amleth e Gruoch di giurargli fedeltà; poi guarda Gruoch e Brakk." }, ["Brakk"]);
+  assert.deepEqual(told.targets, ["Amleth"]);
+  assert.equal(told.outcome, "Mairon chiede a Amleth e Gruoch di giurargli fedeltà; poi guarda Gruoch.");
+  assert.equal(events.withoutUnseen({ actor: "Brakk", targets: [], outcome: "Brakk osserva." }, ["Brakk"]).outcome, "Brakk osserva.", "their own line is theirs");
 });
 
 await test("a perceived event reads as the observer took it in, and only by the channels that reached them", () => {

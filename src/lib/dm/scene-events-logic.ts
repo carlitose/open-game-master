@@ -169,3 +169,27 @@ export function memoryImportance(event: Pick<SceneEvent, "actor" | "verb" | "tar
   }
   return WEIGHTY_VERBS.has(event.verb) || event.volume === "shout" || event.volume === "noise" || strongBond ? 2 : 1;
 }
+
+// What the referee wrote of an event, without the people no eye there can
+// see (the invisible condition). The god Zattera, 2026-11-18: told "Mairon
+// asks everyone to swear", the referee wrote "Mairon asks Brakk, Amleth,
+// Gruoch… to swear", and the invisible god's name went into every castaway's
+// memory. An unseen one is no target, and their name leaves the told deed
+// (from a list first, then wherever it is left).
+export function withoutUnseen<E extends { actor: string; targets: string[]; outcome: string }>(event: E, unseen: readonly string[]): E {
+  const hidden = unseen.filter((name) => name.trim() && textKey(name) !== textKey(event.actor));
+  if (!hidden.length) {
+    return event;
+  }
+  let outcome = event.outcome;
+  for (const name of hidden) {
+    const n = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    outcome = outcome
+      .replace(new RegExp(`${n},\\s*`, "gi"), "")
+      .replace(new RegExp(`,\\s*${n}\\b`, "gi"), "")
+      .replace(new RegExp(`\\s+(e|and|ed)\\s+${n}\\b`, "gi"), "")
+      .replace(new RegExp(`\\b${n}\\s+(e|and|ed)\\s+`, "gi"), "")
+      .replace(new RegExp(`\\b${n}\\b`, "gi"), "nessuno");
+  }
+  return { ...event, targets: event.targets.filter((target) => !hidden.some((name) => textKey(name) === textKey(target))), outcome };
+}

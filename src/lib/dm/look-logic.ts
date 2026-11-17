@@ -11,7 +11,9 @@ export type LookPerson = { name: string; zone: string; looks: string };
 export type LookThing = { name: string; owner: string };
 export type Look = { people: LookPerson[]; things: LookThing[] };
 
-const thingKey = (thing: LookThing) => `${textKey(thing.name)}|${textKey(thing.owner)}`;
+// A thing by its name, not how many: a second blanket is not the first one lost.
+const bare = (name: string) => name.replace(/\s+x\d+$/i, "");
+const thingKey = (thing: LookThing) => `${textKey(bare(thing.name))}|${textKey(thing.owner)}`;
 
 // The lines, in the observer's terms ("you" for itself). The first look of
 // all (no earlier one) says nothing: there is nothing to compare it with.
@@ -41,8 +43,9 @@ export function lookChanges(before: Look | null, now: Look, self: string): strin
     }
   }
   const owner = (name: string) => (textKey(name) === textKey(self) ? "you" : name || "nobody (lying loose)");
-  const had = new Map(before.things.map((thing) => [thingKey(thing), thing]));
-  const has = new Map(now.things.map((thing) => [thingKey(thing), thing]));
+  const plain = (thing: LookThing) => ({ ...thing, name: bare(thing.name) });
+  const had = new Map(before.things.map((thing) => [thingKey(thing), plain(thing)]));
+  const has = new Map(now.things.map((thing) => [thingKey(thing), plain(thing)]));
   const named = (list: Map<string, LookThing>, thing: LookThing) => [...list.values()].filter((other) => textKey(other.name) === textKey(thing.name));
   for (const [key, thing] of had) {
     if (has.has(key)) {
