@@ -24,7 +24,7 @@ import { currentTurnId } from "@/lib/dm/job-control";
 import { requestDmMessage } from "@/lib/dm/model";
 import { handleNpcSpeak, npcMindsOn, tierOfNpc } from "@/lib/dm/npc-mind";
 import { recipientsOf } from "@/lib/dm/npc-mind-logic";
-import { heroLineVolume, perceivedLine, readEventShape, type SceneEvent } from "@/lib/dm/scene-events-logic";
+import { heroLineVolume, perceivedLine, readEventShape, withoutUnseen, type SceneEvent } from "@/lib/dm/scene-events-logic";
 import { perceive, type Observer, type Perception } from "@/lib/dm/senses-logic";
 import { ensureZones, moveTo, senseScene, unseenHeroes, whereEveryoneIs, zoneOf } from "@/lib/dm/scene-place";
 import { CONTACT_VERBS } from "@/lib/dm/zones-logic";
@@ -159,10 +159,11 @@ function passiveOf(campaign: Campaign, npc: Npc): number {
   return passiveScore(campaign, sheet, "perception", hampered ? ["disadvantage"] : []);
 }
 
-export function witness(campaign: Campaign, input: WitnessedEvent): SceneEvent | null {
+export function witness(campaign: Campaign, told: WitnessedEvent): SceneEvent | null {
   if (!npcMindsOn(campaign)) {
     return null;
   }
+  const input = withoutUnseen(told, unseenHeroes(campaign.id));
   // Where it happened: a move takes the actor to its zone, and a hand laid on
   // (or reaching for) someone in another part of the place takes the actor to
   // them first.
