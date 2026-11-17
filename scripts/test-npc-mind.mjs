@@ -898,7 +898,8 @@ await test("the mind's fight view says what its shield rules out, as the server'
 await test("staying alive is every mind's first goal, and a fighting companion sees how close to death it is", async () => {
   assert.match(logic.MIND_SYSTEM, /Above all your goals stands one: staying alive/);
   // A reply that ends by speaking is read without the Ego: its words are speech.
-  assert.deepEqual(logic.readSpokenReply("THINK: Brakk è la mia leva.\nSAY: Brakk, «Alzati e regna.»"), { speech: "Alzati e regna.", intent: "", conclusion: "Brakk è la mia leva.", lie: false });
+  assert.deepEqual(logic.readSpokenReply("THINK: Brakk è la mia leva.\nSAY: Brakk, «Alzati e regna.»"), { speech: "Alzati e regna.", intent: "", conclusion: "Brakk è la mia leva.", lie: false, to: "Brakk" });
+  assert.equal(logic.readSpokenReply("SAY: «Basta.»").to, undefined, "no name, no addressee");
   assert.equal(logic.readSpokenReply("**SAY:** Ottone, «Dammi la ciotola.»\nLYING: yes").lie, true);
   assert.equal(logic.readSpokenReply("SAY: Ottone, dammi la ciotola.").speech, "dammi la ciotola.");
   assert.equal(logic.readSpokenReply("THINK: ho fame.\nDO: Prendo una galletta."), null, "a deed goes to the Ego");

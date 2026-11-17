@@ -11,7 +11,7 @@ import { listRelationships } from "@/lib/db/relationships";
 import { listDroppedItems } from "@/lib/db/dropped-items";
 import { recordSceneEvent, speechHeardInTurn } from "@/lib/db/scene-events";
 import { perceive, type Observer } from "@/lib/dm/senses-logic";
-import { senseScene, whereEveryoneIs, zoneOf } from "@/lib/dm/scene-place";
+import { senseScene, unseenHeroes, whereEveryoneIs, zoneOf } from "@/lib/dm/scene-place";
 import { bodyFrame } from "@/lib/dm/body";
 import { listBonds } from "@/lib/db/npc-bonds";
 import { listMoodlets } from "@/lib/db/npc-moods";
@@ -263,7 +263,9 @@ function nowInstant(campaignId: string): number {
 
 // The heroes at the table, as a stranger sees them.
 function heroesOf(campaignId: string): Array<MindPerson & { companion: boolean }> {
-  return listSheets(campaignId).map((sheet) => ({
+  // An invisible hero is nobody a mind can see is there.
+  const unseen = unseenHeroes(campaignId);
+  return listSheets(campaignId).filter((sheet) => !unseen.includes(sheet.name)).map((sheet) => ({
     name: sheet.name,
     description: [sheet.race, sheet.class].filter(Boolean).join(" ") || "an adventurer",
     companion: Boolean(sheet.isCompanion),
@@ -816,6 +818,8 @@ export async function handleNpcSpeak(campaign: Campaign, rawArguments: string, o
     };
   }
   const { proposal } = outcome;
+  // Whom the words are for, when the mind named someone present.
+  const saidTo = present.find((person) => proposal.to && textKey(person.name) === textKey(proposal.to))?.name ?? "";
   const flags = proposal.speech ? unlearnedNames(proposal.speech, npc.name, worldNames(campaign.id), outcome.memories) : [];
   if (proposal.speech) {
     addNpcMemories(campaign.id, [npc.id], { kind: proposal.lie ? "lie" : "said", sourceKind: "self", sourceName: "", content: proposal.speech, learnedAt: now }, turnId);
@@ -847,6 +851,7 @@ export async function handleNpcSpeak(campaign: Campaign, rawArguments: string, o
     ok: true,
     npc: npc.name,
     says: proposal.speech,
+    ...(proposal.speech && saidTo ? { saysTo: saidTo } : {}),
     intends: proposal.intent,
     ...(whileApart.length ? { whileApart, apartNote: APART_NOTE } : {}),
     ...(apart ? { apartAt: args.place || away?.place || "" } : away ? { rejoined: true } : {}),
@@ -856,7 +861,7 @@ export async function handleNpcSpeak(campaign: Campaign, rawArguments: string, o
       ? { unlearned: flags, flagNote: `${npc.name} named ${flags.join(", ")} without having learned it: treat it as their guess or lie, never as a fact of the world.` }
       : {}),
     narrate:
-      "Voice their words as given and show their intent. The intent is only an attempt, but it is made now: never write it as about to happen or left hanging. Resolve it through the engine's tools when it needs a roll or changes anything, and say how it ends. When they drink or eat, record it with npc_state (drank, ate); when a thing changes hands, with handle_item action \"hand\" (giver and taker by name), grant_item or remove_item. Add nothing they know beyond their words.",
+      "Voice their words as given, to whom saysTo names when it is given, and show their intent. The intent is only an attempt, but it is made now: never write it as about to happen or left hanging. Resolve it through the engine's tools when it needs a roll or changes anything, and say how it ends. When they drink or eat, record it with npc_state (drank, ate); when a thing changes hands, with handle_item action \"hand\" (giver and taker by name), grant_item or remove_item. Add nothing they know beyond their words.",
   };
 }
 
@@ -906,7 +911,8 @@ export function everyoneHears(campaign: Campaign, turnId: string, lines: readonl
     return;
   }
   const staged = Boolean(campaign.gameSettings.npcStage);
-  const heroes = new Set(heroesOf(campaign.id).map((hero) => textKey(hero.name)));
+  // Every hero, the invisible too: their lines are staged as theirs.
+  const heroes = new Set(listSheets(campaign.id).map((sheet) => textKey(sheet.name)));
   const heard = speechHeardInTurn(campaign.id, turnId).map(textKey);
   const already = (words: string) => heard.some((speech) => speech.includes(textKey(words)) || textKey(words).includes(speech));
   for (const line of lines.slice(0, 24)) {

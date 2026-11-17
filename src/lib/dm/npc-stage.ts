@@ -26,7 +26,7 @@ import { handleNpcSpeak, npcMindsOn, tierOfNpc } from "@/lib/dm/npc-mind";
 import { recipientsOf } from "@/lib/dm/npc-mind-logic";
 import { heroLineVolume, perceivedLine, readEventShape, type SceneEvent } from "@/lib/dm/scene-events-logic";
 import { perceive, type Observer, type Perception } from "@/lib/dm/senses-logic";
-import { ensureZones, moveTo, senseScene, whereEveryoneIs, zoneOf } from "@/lib/dm/scene-place";
+import { ensureZones, moveTo, senseScene, unseenHeroes, whereEveryoneIs, zoneOf } from "@/lib/dm/scene-place";
 import { CONTACT_VERBS } from "@/lib/dm/zones-logic";
 import { bodyForReferee, weatherOnBodies } from "@/lib/dm/body";
 import { describeDuration } from "@/lib/dm/calendar";
@@ -241,8 +241,12 @@ export async function runStage(
   // memory: every event in it already left its own line.
   // The heroes' own lines are events too, taken in by each mind's senses: a
   // whisper to one is not every mind's to answer.
+  // An invisible hero's line makes no sound unless it holds words spoken
+  // aloud: the god that only watches leaves nothing for anyone to take in.
+  const unseen = unseenHeroes(campaign.id).map(textKey);
   for (const line of heroLines.filter((entry) => entry.name.trim() && entry.text.trim())) {
-    witness(campaign, { actor: line.name, verb: "other", targets: [], object: "", zoneTo: "", volume: heroLineVolume(line.text), covert: false, speech: "", outcome: line.text, ownWords: true });
+    const volume = unseen.includes(textKey(line.name)) && !/[«“"]/.test(line.text) ? "silent" : heroLineVolume(line.text);
+    witness(campaign, { actor: line.name, verb: "other", targets: [], object: "", zoneTo: "", volume, covert: false, speech: "", outcome: line.text, ownWords: true });
   }
   const frameNow = getClock(campaign.id).instant;
   const frameSeq = lastSceneEventSeq(campaign.id);

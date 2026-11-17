@@ -359,7 +359,9 @@ export function renderMindPrompt(brief: MindBrief): string {
     .join("\n\n");
 }
 
-export type NpcProposal = { speech: string; intent: string; conclusion: string; lie: boolean };
+// `to`: whom the words are for, as the mind named them (a SAY line's
+// "Name, «...»"); checked against who is present before it is used.
+export type NpcProposal = { speech: string; intent: string; conclusion: string; lie: boolean; to?: string };
 
 // The mind's answer, or why it is not one. A reply without a JSON object, or
 // with neither words nor intent, is invalid: the turn does not fill the gap.
@@ -406,6 +408,7 @@ export function readSpokenReply(reply: string): NpcProposal | null {
     return null;
   }
   const said = last.replace(/^[^:]*:\s*/, "");
+  const to = /^([^,«“"]{1,60}),/.exec(said)?.[1]?.trim() ?? "";
   const quoted = /[«“"]([^»”"]+)[»”"]/.exec(said)?.[1]?.trim();
   const speech = clipText((quoted ?? said.replace(/^[^,«“"]{1,60},\s*/, "")).trim(), MIND_TEXT_CHARS * 2);
   if (!speech || /^(nulla|niente|nothing|none)\.?$/i.test(speech)) {
@@ -413,7 +416,7 @@ export function readSpokenReply(reply: string): NpcProposal | null {
   }
   const thought = lines.find((line) => /^(THINK|PENSO)\s*:/i.test(line))?.replace(/^[^:]*:\s*/, "") ?? "";
   const lie = lines.some((line) => /^(LYING|MENTO)\s*:\s*(yes|s[iì])\b/i.test(line));
-  return { speech, intent: "", conclusion: clipText(thought, MIND_TEXT_CHARS * 2), lie };
+  return { speech, intent: "", conclusion: clipText(thought, MIND_TEXT_CHARS * 2), lie, ...(to ? { to } : {}) };
 }
 
 // The reader that turns a mind's free reply into the engine's terms (the

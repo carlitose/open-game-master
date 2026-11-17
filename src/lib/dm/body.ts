@@ -11,7 +11,7 @@ import { listSheets } from "@/lib/db/sheets";
 import { addMoodlets } from "@/lib/db/npc-moods";
 import { bodyMoods } from "@/lib/dm/mood-logic";
 import { adsWords, bodyRefereeWords, bodyWords, isCovering, moodles, tickBody, type Visible } from "@/lib/dm/body-logic";
-import { zoneOf } from "@/lib/dm/scene-place";
+import { unseenHeroes, zoneOf } from "@/lib/dm/scene-place";
 import { currentScene } from "@/lib/dm/sky";
 import { textKey } from "@/lib/language/text-logic";
 
@@ -59,8 +59,10 @@ function visibleThings(campaign: Campaign, present: readonly Npc[]): Visible[] {
   const ground = listDroppedItems(campaign.id)
     .filter((entry) => !entry.heldByEnemy && (!here || textKey(entry.place) === here))
     .map((entry) => ({ name: entry.item.name, owner: "" }));
+  // What an invisible hero carries is as unseen as they are.
+  const unseen = unseenHeroes(campaign.id);
   const heroes = listSheets(campaign.id)
-    .filter((sheet) => !sheet.isCompanion)
+    .filter((sheet) => !sheet.isCompanion && !unseen.includes(sheet.name))
     .flatMap((sheet) => sheet.equipment.map((item) => ({ name: item.name, owner: sheet.name, zone: zoneOf(campaign, sheet.name) })));
   const minds = present.flatMap((npc) => npcThings(npc).map((name) => ({ name, owner: npc.name, zone: zoneOf(campaign, npc.name) })));
   return [...ground, ...heroes, ...minds];

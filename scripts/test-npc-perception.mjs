@@ -41,6 +41,13 @@ await test("the senses: the actor knows its deed, the awake see and hear, the ta
   const covert = Object.fromEntries(senses.perceive({ actor: "Mairon", verb: "steal", targets: ["Kaku"], volume: "silent", covert: true }, watchers).map((entry) => [entry.observerId, entry.channels]));
   assert.equal(covert.o, undefined, "a covert act with no stealth roll is not seen by a bystander");
   assert.equal(covert.k, undefined, "nor by its target, when no hand was laid on them");
+  // An invisible actor (the Zattera's god): heard, felt, never seen.
+  const unseen = { zones: null, eventZone: "", sightRange: 2, dark: false, noise: 0, unseen: ["Brakk"] };
+  const ghost = Object.fromEntries(senses.perceive({ actor: "Brakk", verb: "push", targets: ["Kaku"], volume: "normal", covert: false }, watchers, unseen).map((entry) => [entry.observerId, entry.channels]));
+  assert.deepEqual(ghost.k, ["touch", "hearing"], "the one pushed feels it, sees no one");
+  assert.deepEqual(ghost.m, ["hearing"], "a bystander hears, sees nothing");
+  const silent = senses.perceive({ actor: "Brakk", verb: "other", targets: [], volume: "silent", covert: false }, watchers, unseen).filter((entry) => entry.observerId !== "b");
+  assert.deepEqual(silent, [], "a silent invisible deed reaches nobody");
 });
 
 await test("a perceived event reads as the observer took it in, and only by the channels that reached them", () => {
