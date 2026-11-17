@@ -75,6 +75,7 @@ import {
   parseProposal,
   parseReading,
   MIND_READER_SYSTEM,
+  readSpokenReply,
   renderReaderPrompt,
   driveWords,
   presentPeople,
@@ -541,6 +542,10 @@ async function readReply(campaign: Campaign, name: string, reply: string, ground
   const own = parseProposal(reply);
   if (own.ok) {
     return own;
+  }
+  const spoken = readSpokenReply(reply);
+  if (spoken) {
+    return { ok: true, proposal: spoken };
   }
   let error = "the reader did not answer";
   let refused = "";
