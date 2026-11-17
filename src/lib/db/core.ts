@@ -995,6 +995,13 @@ function ensureSchema(db: SqliteDatabase) {
       expires_at INTEGER NOT NULL,
       PRIMARY KEY (campaign_id, npc_id, emotion, toward, source)
     );
+    CREATE TABLE IF NOT EXISTS npc_looks (
+      campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
+      npc_id TEXT NOT NULL,
+      look_json TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      PRIMARY KEY (campaign_id, npc_id)
+    );
     CREATE TABLE IF NOT EXISTS scene_positions (
       campaign_id TEXT NOT NULL REFERENCES campaigns(id) ON DELETE CASCADE,
       name_key TEXT NOT NULL,

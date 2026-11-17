@@ -1145,5 +1145,22 @@ await test("a rest lets time pass over the scene: a mind on stage a few turns ba
   }
 });
 
+
+await test("a mind notices a change of state between two looks: a hero gone from sight", async () => {
+  npc("Vesna");
+  model.script([answer({ speech: "Chi c'è?", intent: "" })]);
+  await speak({ name: "Vesna", perceives: "Il vento cala." });
+  assert.doesNotMatch(mindText(mindRequests().at(-1)), /What changed since you last looked/, "the first look sets the baseline");
+  world.patch(aria.id, { conditions: ["invisible"] });
+  model.script([answer({ speech: "Dov'è andata?", intent: "" })]);
+  await speak({ name: "Vesna", perceives: "Il vento cala ancora." });
+  assert.match(mindText(mindRequests().at(-1)), /What changed since you last looked[^]*Aria is no longer here/);
+  assert.ok(memories("Vesna").some((entry) => entry.content === "You noticed: Aria is no longer here." && entry.importance === 2));
+  model.script([answer({ speech: "Niente.", intent: "" })]);
+  await speak({ name: "Vesna", perceives: "Silenzio." });
+  assert.doesNotMatch(mindText(mindRequests().at(-1)), /What changed since you last looked/, "noticed once, not every turn");
+  world.patch(aria.id, { conditions: [] });
+});
+
 model.close();
 finish();

@@ -12,7 +12,9 @@ import { listDroppedItems } from "@/lib/db/dropped-items";
 import { recordSceneEvent, speechHeardInTurn } from "@/lib/db/scene-events";
 import { perceive, type Observer } from "@/lib/dm/senses-logic";
 import { senseScene, unseenHeroes, whereEveryoneIs, zoneOf } from "@/lib/dm/scene-place";
-import { bodyFrame } from "@/lib/dm/body";
+import { getLastLook, setLastLook } from "@/lib/db/npc-looks";
+import { changeImportance, lookChanges } from "@/lib/dm/look-logic";
+import { bodyFrame, visibleThings } from "@/lib/dm/body";
 import { listBonds } from "@/lib/db/npc-bonds";
 import { listMoodlets } from "@/lib/db/npc-moods";
 import { moodPresses, moodWords } from "@/lib/dm/mood-logic";
@@ -798,6 +800,8 @@ export async function handleNpcSpeak(campaign: Campaign, rawArguments: string, o
     ...others.map(described),
     ...visible.map(described),
   ];
+  // What changed since it last looked, beside what it sees now.
+  const changed = apart ? "" : noticeChanges(campaign, actor, [...others, ...visible], present, looks, now, turnId);
   const own = npcSeenStateWords(actor.state, knowsName(actor.state.heldBy, ownMemories));
   // The clock, so a moment told as a stretch ("Brakk lies down; eight hours
   // pass") is answered from its end: Mara, told of a whole night's rest,
@@ -809,7 +813,7 @@ export async function handleNpcSpeak(campaign: Campaign, rawArguments: string, o
   const fightTurn = apart ? null : mindsFightTurn(campaign, npc.companionSheetId);
   const ownTurn = fightTurn?.npc.id === npc.id ? fightTurn : null;
   const fight = ownTurn ? `\n\n${fightView(campaign, ownTurn.sheet)}` : "";
-  const outcome = await askMind(campaign, actor, `${where}${args.perceives}${fight}`, present, false);
+  const outcome = await askMind(campaign, actor, `${where}${args.perceives}${changed}${fight}`, present, false);
   if (!outcome.ok) {
     recordNpcProposal(campaign.id, { npcId: npc.id, turnId, mode: "scene", status: "failed", speech: "", intent: "", error: outcome.error, flags: [], latencyMs: outcome.latencyMs, inputTokens: 0, outputTokens: 0 });
     return {
@@ -863,6 +867,24 @@ export async function handleNpcSpeak(campaign: Campaign, rawArguments: string, o
     narrate:
       "Voice their words as given, to whom saysTo names when it is given, and show their intent. The intent is only an attempt, but it is made now: never write it as about to happen or left hanging. Resolve it through the engine's tools when it needs a roll or changes anything, and say how it ends. When they drink or eat, record it with npc_state (drank, ate); when a thing changes hands, with handle_item action \"hand\" (giver and taker by name), grant_item or remove_item. Add nothing they know beyond their words.",
   };
+}
+
+// The change a mind notices (look-logic): its look now, against the one it
+// kept from last time. Each change it notices is remembered as seen, so an
+// old memory ("Brakk sits at the edge") is not the newest word on it.
+function noticeChanges(campaign: Campaign, npc: Npc, minds: readonly Npc[], present: readonly MindPerson[], looks: (entry: Npc) => string, now: number, turnId: string): string {
+  const people = present.map((person) => {
+    const mind = minds.find((entry) => textKey(entry.name) === textKey(person.name));
+    return { name: person.name, zone: zoneOf(campaign, person.name), looks: mind ? looks(mind) : "" };
+  });
+  const things = visibleThings(campaign, [npc, ...minds]).map((thing) => ({ name: thing.name, owner: thing.owner }));
+  const look = { people, things };
+  const lines = lookChanges(getLastLook(campaign.id, npc.id), look, npc.name);
+  setLastLook(campaign.id, npc.id, look);
+  for (const line of lines) {
+    addNpcMemories(campaign.id, [npc.id], { kind: "knowledge", sourceKind: "perceived", sourceName: "", content: `You noticed: ${line}`, learnedAt: now, importance: changeImportance(line) }, turnId);
+  }
+  return lines.length ? `\n\nWhat changed since you last looked (you see the difference, not how it came about):\n${lines.map((line) => `- ${line}`).join("\n")}` : "";
 }
 
 // Someone who speaks in the scene, or hears it from close by, is in it: a
